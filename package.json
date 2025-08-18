@@ -1,0 +1,34 @@
+{
+  "name": "wefuel-app",
+  "version": "1.0.0",
+  "description": "WeFuel - On-demand fuel delivery platform for Johannesburg, South Africa",
+  "main": "server/index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
+    "server:dev": "cd server && npm run dev",
+    "client:dev": "cd client && npm start",
+    "build": "cd client && npm run build",
+    "start": "cd server && npm start",
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install",
+    "test": "npm run test:server && npm run test:client",
+    "test:server": "cd server && npm test",
+    "test:client": "cd client && npm test"
+  },
+  "keywords": [
+    "fuel-delivery",
+    "on-demand",
+    "south-africa",
+    "react",
+    "nodejs",
+    "mongodb"
+  ],
+  "author": "WeFuel Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}
