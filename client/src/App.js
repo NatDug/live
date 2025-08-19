@@ -24,6 +24,7 @@ import UserProfile from './pages/user/Profile';
 import CreateOrder from './pages/user/CreateOrder';
 import PaymentPage from './pages/user/PaymentPage';
 import ProfilePage from './pages/user/ProfilePage';
+import OrderTracking from './pages/user/OrderTracking';
 
 // Driver App Pages
 import DriverLogin from './pages/driver/Login';
@@ -33,6 +34,8 @@ import DriverOrders from './pages/driver/Orders';
 import DriverTraining from './pages/driver/Training';
 import DriverWallet from './pages/driver/Wallet';
 import DriverProfile from './pages/driver/Profile';
+import OrderDetails from './pages/driver/OrderDetails';
+import Earnings from './pages/driver/Earnings';
 
 // Station App Pages
 import StationLogin from './pages/station/Login';
@@ -141,6 +144,14 @@ function App() {
                       </ProtectedRoute>
                     } 
                   />
+                  <Route 
+                    path="/user/order-tracking/:orderId" 
+                    element={
+                      <ProtectedRoute userType="user">
+                        <OrderTracking />
+                      </ProtectedRoute>
+                    } 
+                  />
                   
                   {/* Driver Routes */}
                   <Route path="/driver/login" element={<DriverLogin />} />
@@ -182,6 +193,22 @@ function App() {
                     element={
                       <ProtectedRoute userType="driver">
                         <DriverProfile />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="/driver/order/:orderId" 
+                    element={
+                      <ProtectedRoute userType="driver">
+                        <OrderDetails />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="/driver/earnings" 
+                    element={
+                      <ProtectedRoute userType="driver">
+                        <Earnings />
                       </ProtectedRoute>
                     } 
                   />

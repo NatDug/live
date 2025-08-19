@@ -1,338 +1,439 @@
 const axios = require('axios');
-const { logger } = require('../utils/logger');
+const crypto = require('crypto');
+const logger = require('../utils/logger');
 
 class PaymentService {
   constructor() {
-    this.yocoApiKey = process.env.YOCO_API_KEY;
-    this.ozowApiKey = process.env.OZOW_API_KEY;
+    this.yocoPublicKey = process.env.YOCO_PUBLIC_KEY;
+    this.yocoSecretKey = process.env.YOCO_SECRET_KEY;
     this.ozowSiteCode = process.env.OZOW_SITE_CODE;
     this.ozowPrivateKey = process.env.OZOW_PRIVATE_KEY;
+    this.ozowApiKey = process.env.OZOW_API_KEY;
+    this.ozowCountryCode = process.env.OZOW_COUNTRY_CODE || 'ZA';
+    this.ozowCurrencyCode = process.env.OZOW_CURRENCY_CODE || 'ZAR';
+    
+    // Yoco API endpoints
+    this.yocoBaseUrl = process.env.NODE_ENV === 'production' 
+      ? 'https://online.yoco.com/v1'
+      : 'https://online.yoco.com/v1'; // Yoco uses same URL for test/prod
+    
+    // Ozow API endpoints
+    this.ozowBaseUrl = process.env.NODE_ENV === 'production'
+      ? 'https://pay.ozow.com'
+      : 'https://pay.ozow.com'; // Ozow uses same URL for test/prod
   }
 
-  // Process card payment via Yoco
-  async processCardPayment(paymentData) {
+  /**
+   * Process Yoco card payment
+   */
+  async processYocoPayment(paymentData) {
     try {
-      const { amount, currency = 'ZAR', source, metadata } = paymentData;
+      const {
+        amount,
+        currency = 'ZAR',
+        source = 'tok_visa', // Default test token
+        metadata = {},
+        description = 'WeFuel Payment'
+      } = paymentData;
 
-      const response = await axios.post('https://online.yoco.com/v1/charges/', {
-        token: source,
-        amountInCents: Math.round(amount * 100), // Convert to cents
-        currency: currency,
-        metadata: metadata
-      }, {
-        headers: {
-          'X-Auth-Secret-Key': this.yocoApiKey
+      const payload = {
+        amount: Math.round(amount * 100), // Convert to cents
+        currency: currency.toUpperCase(),
+        source: source,
+        metadata: {
+          ...metadata,
+          description: description
         }
-      });
+      };
+
+      const response = await axios.post(
+        `${this.yocoBaseUrl}/charges/`,
+        payload,
+        {
+          headers: {
+            'X-Auth-Secret-Key': this.yocoSecretKey,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
       if (response.data.status === 'successful') {
         return {
           success: true,
           transactionId: response.data.id,
-          amount: amount,
-          currency: currency,
-          status: 'completed',
-          provider: 'yoco',
-          metadata: response.data
+          amount: response.data.amount / 100, // Convert back from cents
+          currency: response.data.currency,
+          status: response.data.status,
+          metadata: response.data.metadata
         };
       } else {
-        throw new Error(`Payment failed: ${response.data.failure_reason}`);
+        throw new Error(`Payment failed: ${response.data.failure_reason || 'Unknown error'}`);
       }
     } catch (error) {
-      logger.error('Yoco payment error:', error.message);
-      return {
-        success: false,
-        error: error.message,
-        provider: 'yoco'
-      };
+      logger.error('Yoco payment error:', error.response?.data || error.message);
+      throw new Error(`Yoco payment failed: ${error.response?.data?.failure_reason || error.message}`);
     }
   }
 
-  // Process instant EFT via Ozow
-  async processInstantEFT(paymentData) {
-    try {
-      const { amount, currency = 'ZAR', customerEmail, customerName, transactionReference } = paymentData;
-
-      // Generate Ozow signature
-      const signature = this.generateOzowSignature({
-        SiteCode: this.ozowSiteCode,
-        CountryCode: 'ZA',
-        CurrencyCode: currency,
-        Amount: amount.toFixed(2),
-        TransactionReference: transactionReference,
-        BankReference: transactionReference,
-        CancelUrl: `${process.env.CLIENT_URL}/payment/cancel`,
-        ErrorUrl: `${process.env.CLIENT_URL}/payment/error`,
-        SuccessUrl: `${process.env.CLIENT_URL}/payment/success`,
-        NotifyUrl: `${process.env.API_URL}/api/payments/ozow/webhook`,
-        Customer: customerName,
-        CustomerEmail: customerEmail
-      });
-
-      const ozowData = {
-        SiteCode: this.ozowSiteCode,
-        CountryCode: 'ZA',
-        CurrencyCode: currency,
-        Amount: amount.toFixed(2),
-        TransactionReference: transactionReference,
-        BankReference: transactionReference,
-        CancelUrl: `${process.env.CLIENT_URL}/payment/cancel`,
-        ErrorUrl: `${process.env.CLIENT_URL}/payment/error`,
-        SuccessUrl: `${process.env.CLIENT_URL}/payment/success`,
-        NotifyUrl: `${process.env.API_URL}/api/payments/ozow/webhook`,
-        Customer: customerName,
-        CustomerEmail: customerEmail,
-        Signature: signature
-      };
-
-      // Redirect to Ozow payment page
-      const ozowUrl = 'https://pay.ozow.com';
-      const formData = new URLSearchParams(ozowData).toString();
-
-      return {
-        success: true,
-        redirectUrl: ozowUrl,
-        formData: formData,
-        transactionReference: transactionReference,
-        provider: 'ozow'
-      };
-    } catch (error) {
-      logger.error('Ozow payment error:', error.message);
-      return {
-        success: false,
-        error: error.message,
-        provider: 'ozow'
-      };
-    }
-  }
-
-  // Generate Ozow signature
-  generateOzowSignature(data) {
-    const crypto = require('crypto');
-    
-    // Create string to sign (alphabetical order)
-    const stringToSign = Object.keys(data)
-      .filter(key => key !== 'Signature')
-      .sort()
-      .map(key => `${key}=${data[key]}`)
-      .join('&');
-
-    // Sign with private key
-    const sign = crypto.createSign('SHA512');
-    sign.update(stringToSign);
-    return sign.sign(this.ozowPrivateKey, 'base64');
-  }
-
-  // Process wallet payment
-  async processWalletPayment(userId, amount, orderId) {
-    try {
-      const User = require('../models/User');
-      const user = await User.findById(userId);
-
-      if (!user) {
-        throw new Error('User not found');
-      }
-
-      if (user.wallet.balance < amount) {
-        throw new Error('Insufficient wallet balance');
-      }
-
-      // Deduct from wallet
-      user.wallet.balance -= amount;
-      
-      // Add transaction record
-      user.wallet.transactions.push({
-        type: 'payment',
-        amount: -amount,
-        description: `Payment for order ${orderId}`,
-        status: 'completed',
-        timestamp: new Date()
-      });
-
-      await user.save();
-
-      return {
-        success: true,
-        transactionId: `WALLET_${Date.now()}`,
-        amount: amount,
-        status: 'completed',
-        provider: 'wallet',
-        newBalance: user.wallet.balance
-      };
-    } catch (error) {
-      logger.error('Wallet payment error:', error.message);
-      return {
-        success: false,
-        error: error.message,
-        provider: 'wallet'
-      };
-    }
-  }
-
-  // Process cash payment (for orders < R300)
-  async processCashPayment(paymentData) {
-    const { amount, orderId } = paymentData;
-
-    if (amount >= 300) {
-      return {
-        success: false,
-        error: 'Cash payments only allowed for orders under R300',
-        provider: 'cash'
-      };
-    }
-
-    return {
-      success: true,
-      transactionId: `CASH_${Date.now()}`,
-      amount: amount,
-      status: 'pending', // Will be completed when driver confirms
-      provider: 'cash',
-      requiresConfirmation: true
-    };
-  }
-
-  // Process refund
-  async processRefund(transactionId, amount, reason) {
-    try {
-      // Determine payment provider from transaction ID
-      if (transactionId.startsWith('YOC')) {
-        return await this.processYocoRefund(transactionId, amount);
-      } else if (transactionId.startsWith('OZO')) {
-        return await this.processOzowRefund(transactionId, amount);
-      } else if (transactionId.startsWith('WALLET')) {
-        return await this.processWalletRefund(transactionId, amount);
-      } else {
-        throw new Error('Unknown payment provider');
-      }
-    } catch (error) {
-      logger.error('Refund error:', error.message);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  // Process Yoco refund
-  async processYocoRefund(transactionId, amount) {
-    try {
-      const response = await axios.post(`https://online.yoco.com/v1/refunds/`, {
-        chargeId: transactionId,
-        amountInCents: Math.round(amount * 100)
-      }, {
-        headers: {
-          'X-Auth-Secret-Key': this.yocoApiKey
-        }
-      });
-
-      return {
-        success: true,
-        refundId: response.data.id,
-        amount: amount,
-        status: 'completed',
-        provider: 'yoco'
-      };
-    } catch (error) {
-      throw new Error(`Yoco refund failed: ${error.message}`);
-    }
-  }
-
-  // Process Ozow refund
-  async processOzowRefund(transactionId, amount) {
-    // Ozow refunds are typically processed manually
-    // This would integrate with their refund API when available
-    return {
-      success: true,
-      refundId: `OZOW_REFUND_${Date.now()}`,
-      amount: amount,
-      status: 'pending',
-      provider: 'ozow',
-      note: 'Refund will be processed within 3-5 business days'
-    };
-  }
-
-  // Process wallet refund
-  async processWalletRefund(transactionId, amount, userId) {
-    try {
-      const User = require('../models/User');
-      const user = await User.findById(userId);
-
-      if (!user) {
-        throw new Error('User not found');
-      }
-
-      // Add to wallet
-      user.wallet.balance += amount;
-      
-      // Add transaction record
-      user.wallet.transactions.push({
-        type: 'refund',
-        amount: amount,
-        description: `Refund for transaction ${transactionId}`,
-        status: 'completed',
-        timestamp: new Date()
-      });
-
-      await user.save();
-
-      return {
-        success: true,
-        refundId: `WALLET_REFUND_${Date.now()}`,
-        amount: amount,
-        status: 'completed',
-        provider: 'wallet',
-        newBalance: user.wallet.balance
-      };
-    } catch (error) {
-      throw new Error(`Wallet refund failed: ${error.message}`);
-    }
-  }
-
-  // Verify payment status
-  async verifyPaymentStatus(transactionId, provider) {
-    try {
-      switch (provider) {
-        case 'yoco':
-          return await this.verifyYocoPayment(transactionId);
-        case 'ozow':
-          return await this.verifyOzowPayment(transactionId);
-        case 'wallet':
-        case 'cash':
-          return { status: 'completed' };
-        default:
-          throw new Error('Unknown payment provider');
-      }
-    } catch (error) {
-      logger.error('Payment verification error:', error.message);
-      return { status: 'unknown', error: error.message };
-    }
-  }
-
-  // Verify Yoco payment
+  /**
+   * Verify Yoco payment
+   */
   async verifyYocoPayment(transactionId) {
     try {
-      const response = await axios.get(`https://online.yoco.com/v1/charges/${transactionId}`, {
-        headers: {
-          'X-Auth-Secret-Key': this.yocoApiKey
+      const response = await axios.get(
+        `${this.yocoBaseUrl}/charges/${transactionId}/`,
+        {
+          headers: {
+            'X-Auth-Secret-Key': this.yocoSecretKey
+          }
         }
-      });
+      );
 
       return {
+        success: true,
+        transactionId: response.data.id,
+        amount: response.data.amount / 100,
+        currency: response.data.currency,
         status: response.data.status,
-        amount: response.data.amountInCents / 100,
-        currency: response.data.currency
+        metadata: response.data.metadata
       };
     } catch (error) {
+      logger.error('Yoco verification error:', error.response?.data || error.message);
       throw new Error(`Yoco verification failed: ${error.message}`);
     }
   }
 
-  // Verify Ozow payment
-  async verifyOzowPayment(transactionId) {
-    // This would integrate with Ozow's verification API
+  /**
+   * Process Ozow EFT payment
+   */
+  async processOzowPayment(paymentData) {
+    try {
+      const {
+        amount,
+        reference,
+        customerEmail,
+        customerName,
+        successUrl,
+        cancelUrl,
+        errorUrl,
+        notifyUrl,
+        metadata = {}
+      } = paymentData;
+
+      // Generate unique transaction reference
+      const transactionRef = reference || `WF_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Create signature
+      const signatureData = [
+        this.ozowSiteCode,
+        transactionRef,
+        customerEmail,
+        amount.toFixed(2),
+        this.ozowCountryCode,
+        this.ozowCurrencyCode,
+        successUrl,
+        cancelUrl,
+        errorUrl,
+        notifyUrl,
+        this.ozowPrivateKey
+      ].join('');
+
+      const signature = crypto.createHash('sha512').update(signatureData).digest('hex');
+
+      const payload = {
+        SiteCode: this.ozowSiteCode,
+        CountryCode: this.ozowCountryCode,
+        CurrencyCode: this.ozowCurrencyCode,
+        Amount: amount.toFixed(2),
+        TransactionReference: transactionRef,
+        BankReference: transactionRef,
+        Optional1: metadata.orderId || '',
+        Optional2: metadata.userId || '',
+        Optional3: metadata.fuelType || '',
+        Optional4: metadata.quantity || '',
+        Optional5: JSON.stringify(metadata),
+        IsTest: process.env.NODE_ENV !== 'production',
+        Customer: customerName,
+        BankReference: transactionRef,
+        CancelUrl: cancelUrl,
+        ErrorUrl: errorUrl,
+        SuccessUrl: successUrl,
+        NotifyUrl: notifyUrl,
+        CustomerEmail: customerEmail,
+        Signature: signature
+      };
+
+      // For Ozow, we return the payment URL for redirect
+      const queryString = Object.keys(payload)
+        .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(payload[key])}`)
+        .join('&');
+
+      const paymentUrl = `${this.ozowBaseUrl}/?${queryString}`;
+
+      return {
+        success: true,
+        transactionId: transactionRef,
+        paymentUrl: paymentUrl,
+        amount: amount,
+        currency: this.ozowCurrencyCode,
+        status: 'pending',
+        metadata: metadata
+      };
+    } catch (error) {
+      logger.error('Ozow payment error:', error.message);
+      throw new Error(`Ozow payment failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Verify Ozow payment callback
+   */
+  async verifyOzowCallback(callbackData) {
+    try {
+      const {
+        TransactionId,
+        TransactionReference,
+        Amount,
+        Status,
+        Signature,
+        Optional1,
+        Optional2,
+        Optional3,
+        Optional4,
+        Optional5
+      } = callbackData;
+
+      // Recreate signature for verification
+      const signatureData = [
+        this.ozowSiteCode,
+        TransactionReference,
+        Amount,
+        Status,
+        this.ozowPrivateKey
+      ].join('');
+
+      const expectedSignature = crypto.createHash('sha512').update(signatureData).digest('hex');
+
+      if (Signature !== expectedSignature) {
+        throw new Error('Invalid signature');
+      }
+
+      // Parse metadata
+      let metadata = {};
+      try {
+        if (Optional5) {
+          metadata = JSON.parse(Optional5);
+        }
+      } catch (e) {
+        // Metadata parsing failed, use individual fields
+        metadata = {
+          orderId: Optional1,
+          userId: Optional2,
+          fuelType: Optional3,
+          quantity: Optional4
+        };
+      }
+
+      return {
+        success: true,
+        transactionId: TransactionId,
+        transactionReference: TransactionReference,
+        amount: parseFloat(Amount),
+        status: Status.toLowerCase(),
+        metadata: metadata,
+        verified: true
+      };
+    } catch (error) {
+      logger.error('Ozow callback verification error:', error.message);
+      throw new Error(`Ozow callback verification failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Process Ozow payment status check
+   */
+  async checkOzowPaymentStatus(transactionReference) {
+    try {
+      const response = await axios.post(
+        `${this.ozowBaseUrl}/api/transaction/status`,
+        {
+          SiteCode: this.ozowSiteCode,
+          TransactionReference: transactionReference
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${this.ozowApiKey}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return {
+        success: true,
+        transactionReference: transactionReference,
+        status: response.data.Status,
+        amount: response.data.Amount,
+        verified: true
+      };
+    } catch (error) {
+      logger.error('Ozow status check error:', error.response?.data || error.message);
+      throw new Error(`Ozow status check failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Process refund for Yoco payment
+   */
+  async processYocoRefund(chargeId, amount, reason = 'Customer request') {
+    try {
+      const payload = {
+        amount: Math.round(amount * 100), // Convert to cents
+        reason: reason
+      };
+
+      const response = await axios.post(
+        `${this.yocoBaseUrl}/charges/${chargeId}/refunds/`,
+        payload,
+        {
+          headers: {
+            'X-Auth-Secret-Key': this.yocoSecretKey,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return {
+        success: true,
+        refundId: response.data.id,
+        amount: response.data.amount / 100,
+        status: response.data.status,
+        reason: response.data.reason
+      };
+    } catch (error) {
+      logger.error('Yoco refund error:', error.response?.data || error.message);
+      throw new Error(`Yoco refund failed: ${error.response?.data?.failure_reason || error.message}`);
+    }
+  }
+
+  /**
+   * Process refund for Ozow payment
+   */
+  async processOzowRefund(transactionReference, amount, reason = 'Customer request') {
+    try {
+      const signatureData = [
+        this.ozowSiteCode,
+        transactionReference,
+        amount.toFixed(2),
+        reason,
+        this.ozowPrivateKey
+      ].join('');
+
+      const signature = crypto.createHash('sha512').update(signatureData).digest('hex');
+
+      const payload = {
+        SiteCode: this.ozowSiteCode,
+        TransactionReference: transactionReference,
+        Amount: amount.toFixed(2),
+        Reason: reason,
+        Signature: signature
+      };
+
+      const response = await axios.post(
+        `${this.ozowBaseUrl}/api/refund`,
+        payload,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.ozowApiKey}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return {
+        success: true,
+        refundId: response.data.RefundId,
+        amount: parseFloat(response.data.Amount),
+        status: response.data.Status,
+        reason: response.data.Reason
+      };
+    } catch (error) {
+      logger.error('Ozow refund error:', error.response?.data || error.message);
+      throw new Error(`Ozow refund failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get payment gateway status
+   */
+  async getGatewayStatus() {
+    const status = {
+      yoco: {
+        enabled: !!(this.yocoPublicKey && this.yocoSecretKey),
+        testMode: process.env.NODE_ENV !== 'production'
+      },
+      ozow: {
+        enabled: !!(this.ozowSiteCode && this.ozowPrivateKey && this.ozowApiKey),
+        testMode: process.env.NODE_ENV !== 'production'
+      }
+    };
+
+    return status;
+  }
+
+  /**
+   * Validate payment data
+   */
+  validatePaymentData(paymentData, gateway) {
+    const errors = [];
+
+    if (!paymentData.amount || paymentData.amount <= 0) {
+      errors.push('Invalid amount');
+    }
+
+    if (gateway === 'yoco') {
+      if (!paymentData.source) {
+        errors.push('Payment source is required for Yoco');
+      }
+    } else if (gateway === 'ozow') {
+      if (!paymentData.customerEmail) {
+        errors.push('Customer email is required for Ozow');
+      }
+      if (!paymentData.customerName) {
+        errors.push('Customer name is required for Ozow');
+      }
+      if (!paymentData.successUrl || !paymentData.cancelUrl || !paymentData.errorUrl) {
+        errors.push('URLs are required for Ozow payment');
+      }
+    }
+
+    return errors;
+  }
+
+  /**
+   * Format amount for display
+   */
+  formatAmount(amount, currency = 'ZAR') {
+    return new Intl.NumberFormat('en-ZA', {
+      style: 'currency',
+      currency: currency
+    }).format(amount);
+  }
+
+  /**
+   * Generate test payment tokens (for development)
+   */
+  getTestTokens() {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Test tokens not available in production');
+    }
+
     return {
-      status: 'completed',
-      note: 'Ozow payments are typically confirmed via webhook'
+      yoco: {
+        visa: 'tok_visa',
+        mastercard: 'tok_mastercard',
+        amex: 'tok_amex',
+        declined: 'tok_chargeDeclined'
+      }
     };
   }
 }

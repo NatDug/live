@@ -96,12 +96,17 @@ const PaymentPage = () => {
               toast.error('Payment failed: ' + result.error.message);
               setPaymentStatus('error');
             } else {
-              // Process successful payment
+              // Process successful payment with real payment service
               await processPaymentMutation.mutateAsync({
-                ...paymentData,
+                orderId: orderId,
+                amount: order.totalAmount,
                 paymentMethod: 'card',
-                transactionId: result.id,
                 paymentProvider: 'yoco',
+                paymentData: {
+                  token: result.id,
+                  customerEmail: user.email,
+                  customerName: `${user.firstName} ${user.lastName}`
+                }
               });
             }
           },
@@ -117,15 +122,18 @@ const PaymentPage = () => {
   const initializeOzowPayment = async (paymentData) => {
     try {
       const response = await axios.post('/api/payments/ozow/initiate', {
-        ...paymentData,
-        paymentMethod: 'eft',
-        paymentProvider: 'ozow',
-        returnUrl: `${window.location.origin}/user/payment/success`,
-        cancelUrl: `${window.location.origin}/user/payment/cancel`,
+        orderId: orderId,
+        amount: order.totalAmount,
+        returnUrl: `${window.location.origin}/user/payment/success?orderId=${orderId}`,
+        cancelUrl: `${window.location.origin}/user/payment/cancel?orderId=${orderId}`,
       });
 
-      // Redirect to Ozow payment page
-      window.location.href = response.data.paymentUrl;
+      if (response.data.success && response.data.paymentUrl) {
+        // Redirect to Ozow payment page
+        window.location.href = response.data.paymentUrl;
+      } else {
+        throw new Error('Failed to get payment URL');
+      }
     } catch (error) {
       toast.error('Failed to initialize EFT payment');
       setPaymentStatus('error');

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Order = require('../models/Order');
 const User = require('../models/User');
+const PaymentService = require('../services/PaymentService');
 const { verifyToken } = require('../middleware/auth');
 const logger = require('../utils/logger');
 
@@ -14,7 +15,8 @@ router.post('/process', verifyToken, async (req, res) => {
       paymentMethod, 
       paymentProvider, 
       transactionId,
-      cardDetails 
+      cardDetails,
+      paymentData 
     } = req.body;
 
     const order = await Order.findById(orderId);
@@ -41,10 +43,10 @@ router.post('/process', verifyToken, async (req, res) => {
         paymentResult = await processWalletPayment(order, req.user.id);
         break;
       case 'card':
-        paymentResult = await processCardPayment(order, paymentProvider, transactionId, cardDetails);
+        paymentResult = await processCardPayment(order, paymentData);
         break;
       case 'eft':
-        paymentResult = await processEFTPayment(order, paymentProvider, transactionId);
+        paymentResult = await processEFTPayment(order, paymentData);
         break;
       default:
         return res.status(400).json({ success: false, message: 'Invalid payment method' });
@@ -59,14 +61,15 @@ router.post('/process', verifyToken, async (req, res) => {
     order.paymentStatus = 'paid';
     order.paymentMethod = paymentMethod;
     order.paymentProvider = paymentProvider;
-    order.transactionId = transactionId;
+    order.transactionId = paymentResult.transactionId;
     order.paidAt = new Date();
     await order.save();
 
     res.json({ 
       success: true, 
       message: 'Payment processed successfully',
-      order: order
+      order: order,
+      payment: paymentResult
     });
 
   } catch (error) {
@@ -99,7 +102,11 @@ async function processWalletPayment(order, userId) {
 
     await user.save();
 
-    return { success: true };
+    return { 
+      success: true,
+      transactionId: `WALLET_${Date.now()}`,
+      provider: 'wallet'
+    };
   } catch (error) {
     logger.error('Error processing wallet payment:', error);
     return { success: false, message: 'Wallet payment failed' };
@@ -107,71 +114,70 @@ async function processWalletPayment(order, userId) {
 }
 
 // Process card payment
-async function processCardPayment(order, provider, transactionId, cardDetails) {
+async function processCardPayment(order, paymentData) {
   try {
-    // In a real implementation, you would verify the payment with the provider
-    // For now, we'll simulate a successful payment
-    
-    if (!transactionId) {
-      return { success: false, message: 'Transaction ID required' };
-    }
+    const paymentResult = await PaymentService.processYocoPayment({
+      amount: order.total,
+      currency: 'ZAR',
+      source: paymentData.token,
+      metadata: {
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        userId: order.userId.toString(),
+        fuelType: order.fuelType,
+        quantity: order.quantity
+      },
+      description: `WeFuel Order #${order.orderNumber}`
+    });
 
-    // Verify payment with provider (Yoco, etc.)
-    const paymentVerification = await verifyPaymentWithProvider(provider, transactionId, order.total);
-    
-    if (!paymentVerification.success) {
-      return { success: false, message: 'Payment verification failed' };
-    }
-
-    return { success: true };
+    return {
+      success: true,
+      transactionId: paymentResult.transactionId,
+      provider: 'yoco',
+      amount: paymentResult.amount,
+      status: paymentResult.status
+    };
   } catch (error) {
     logger.error('Error processing card payment:', error);
-    return { success: false, message: 'Card payment failed' };
+    return { success: false, message: error.message };
   }
 }
 
 // Process EFT payment
-async function processEFTPayment(order, provider, transactionId) {
+async function processEFTPayment(order, paymentData) {
   try {
-    // In a real implementation, you would verify the EFT payment with the provider
-    // For now, we'll simulate a successful payment
+    const baseUrl = process.env.CLIENT_URL || 'http://localhost:3000';
     
-    if (!transactionId) {
-      return { success: false, message: 'Transaction ID required' };
-    }
+    const paymentResult = await PaymentService.processOzowPayment({
+      amount: order.total,
+      reference: `WF_${order.orderNumber}`,
+      customerEmail: paymentData.customerEmail,
+      customerName: paymentData.customerName,
+      successUrl: `${baseUrl}/user/payment/success?orderId=${order._id}`,
+      cancelUrl: `${baseUrl}/user/payment/cancel?orderId=${order._id}`,
+      errorUrl: `${baseUrl}/user/payment/error?orderId=${order._id}`,
+      notifyUrl: `${process.env.API_URL || 'http://localhost:5000'}/api/payments/ozow/callback`,
+      metadata: {
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        userId: order.userId.toString(),
+        fuelType: order.fuelType,
+        quantity: order.quantity
+      }
+    });
 
-    // Verify EFT payment with provider (Ozow, etc.)
-    const paymentVerification = await verifyEFTPaymentWithProvider(provider, transactionId, order.total);
-    
-    if (!paymentVerification.success) {
-      return { success: false, message: 'EFT payment verification failed' };
-    }
-
-    return { success: true };
+    return {
+      success: true,
+      transactionId: paymentResult.transactionId,
+      paymentUrl: paymentResult.paymentUrl,
+      provider: 'ozow',
+      amount: paymentResult.amount,
+      status: paymentResult.status
+    };
   } catch (error) {
     logger.error('Error processing EFT payment:', error);
-    return { success: false, message: 'EFT payment failed' };
+    return { success: false, message: error.message };
   }
-}
-
-// Verify payment with provider (placeholder)
-async function verifyPaymentWithProvider(provider, transactionId, amount) {
-  // In a real implementation, you would make an API call to verify the payment
-  // For now, we'll return a successful verification
-  
-  logger.info(`Verifying payment with ${provider} for transaction ${transactionId}`);
-  
-  return { success: true };
-}
-
-// Verify EFT payment with provider (placeholder)
-async function verifyEFTPaymentWithProvider(provider, transactionId, amount) {
-  // In a real implementation, you would make an API call to verify the EFT payment
-  // For now, we'll return a successful verification
-  
-  logger.info(`Verifying EFT payment with ${provider} for transaction ${transactionId}`);
-  
-  return { success: true };
 }
 
 // Initialize Ozow payment
@@ -193,24 +199,30 @@ router.post('/ozow/initiate', verifyToken, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
-    // In a real implementation, you would make an API call to Ozow to initiate payment
-    // For now, we'll simulate the payment initiation
+    const baseUrl = process.env.CLIENT_URL || 'http://localhost:3000';
     
-    const paymentUrl = await initiateOzowPayment({
-      amount: Math.round(amount * 100), // Convert to cents
-      reference: order._id.toString(),
-      returnUrl,
-      cancelUrl,
-      customer: {
-        name: `${order.userId.firstName} ${order.userId.lastName}`,
-        email: order.userId.email
+    const paymentResult = await PaymentService.processOzowPayment({
+      amount: order.total,
+      reference: `WF_${order.orderNumber}`,
+      customerEmail: order.userId.email,
+      customerName: `${order.userId.firstName} ${order.userId.lastName}`,
+      successUrl: returnUrl || `${baseUrl}/user/payment/success?orderId=${order._id}`,
+      cancelUrl: cancelUrl || `${baseUrl}/user/payment/cancel?orderId=${order._id}`,
+      errorUrl: `${baseUrl}/user/payment/error?orderId=${order._id}`,
+      notifyUrl: `${process.env.API_URL || 'http://localhost:5000'}/api/payments/ozow/callback`,
+      metadata: {
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        userId: order.userId.toString(),
+        fuelType: order.fuelType,
+        quantity: order.quantity
       }
     });
 
     res.json({ 
       success: true, 
-      paymentUrl,
-      reference: order._id.toString()
+      paymentUrl: paymentResult.paymentUrl,
+      reference: paymentResult.transactionId
     });
 
   } catch (error) {
@@ -219,56 +231,41 @@ router.post('/ozow/initiate', verifyToken, async (req, res) => {
   }
 });
 
-// Initiate Ozow payment (placeholder)
-async function initiateOzowPayment(paymentData) {
-  // In a real implementation, you would make an API call to Ozow
-  // For now, we'll return a mock payment URL
-  
-  logger.info('Initiating Ozow payment:', paymentData);
-  
-  // Simulate API call delay
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  return `https://pay.ozow.com/payment?reference=${paymentData.reference}&amount=${paymentData.amount}`;
-}
-
 // Ozow payment callback
 router.post('/ozow/callback', async (req, res) => {
   try {
-    const { 
-      TransactionId, 
-      Reference, 
-      Amount, 
-      Status, 
-      Hash 
-    } = req.body;
+    const callbackData = req.body;
+    
+    logger.info('Ozow callback received:', callbackData);
 
-    // Verify the callback hash
-    const isValidHash = verifyOzowCallbackHash(req.body);
-    if (!isValidHash) {
-      logger.error('Invalid Ozow callback hash');
-      return res.status(400).json({ success: false, message: 'Invalid hash' });
+    // Verify the callback signature
+    const verificationResult = await PaymentService.verifyOzowCallback(callbackData);
+    
+    if (!verificationResult.verified) {
+      logger.error('Ozow callback verification failed');
+      return res.status(400).json({ success: false, message: 'Invalid callback signature' });
     }
 
-    const order = await Order.findById(Reference);
+    // Find the order using metadata
+    const order = await Order.findById(verificationResult.metadata.orderId);
     if (!order) {
-      logger.error('Order not found for Ozow callback:', Reference);
+      logger.error('Order not found for Ozow callback:', verificationResult.metadata.orderId);
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    if (Status === 'Complete') {
-      // Update order status
+    // Update order payment status
+    if (verificationResult.status === 'complete') {
       order.status = 'confirmed';
       order.paymentStatus = 'paid';
       order.paymentMethod = 'eft';
       order.paymentProvider = 'ozow';
-      order.transactionId = TransactionId;
+      order.transactionId = verificationResult.transactionId;
       order.paidAt = new Date();
       await order.save();
 
-      logger.info('Ozow payment completed for order:', Reference);
+      logger.info('Ozow payment completed for order:', order.orderNumber);
     } else {
-      logger.warn('Ozow payment failed for order:', Reference, Status);
+      logger.warn('Ozow payment failed for order:', order.orderNumber, verificationResult.status);
     }
 
     res.json({ success: true });
@@ -279,16 +276,6 @@ router.post('/ozow/callback', async (req, res) => {
   }
 });
 
-// Verify Ozow callback hash (placeholder)
-function verifyOzowCallbackHash(callbackData) {
-  // In a real implementation, you would verify the hash using Ozow's algorithm
-  // For now, we'll return true
-  
-  logger.info('Verifying Ozow callback hash:', callbackData);
-  
-  return true;
-}
-
 // Get payment history
 router.get('/history', verifyToken, async (req, res) => {
   try {
@@ -298,7 +285,7 @@ router.get('/history', verifyToken, async (req, res) => {
       userId: req.user.id,
       paymentStatus: 'paid'
     })
-    .select('_id total paymentMethod paymentProvider paidAt status')
+    .select('_id total paymentMethod paymentProvider paidAt status orderNumber')
     .sort({ paidAt: -1 })
     .limit(limit * 1)
     .skip((page - 1) * limit)
@@ -376,10 +363,10 @@ router.post('/:paymentId/refund', verifyToken, async (req, res) => {
         refundResult = await processWalletRefund(order, req.user.id);
         break;
       case 'card':
-        refundResult = await processCardRefund(order);
+        refundResult = await processCardRefund(order, reason);
         break;
       case 'eft':
-        refundResult = await processEFTRefund(order);
+        refundResult = await processEFTRefund(order, reason);
         break;
       default:
         return res.status(400).json({ success: false, message: 'Invalid payment method' });
@@ -399,7 +386,8 @@ router.post('/:paymentId/refund', verifyToken, async (req, res) => {
     res.json({ 
       success: true, 
       message: 'Refund processed successfully',
-      order: order
+      order: order,
+      refund: refundResult
     });
 
   } catch (error) {
@@ -428,7 +416,11 @@ async function processWalletRefund(order, userId) {
 
     await user.save();
 
-    return { success: true };
+    return { 
+      success: true,
+      refundId: `WALLET_REFUND_${Date.now()}`,
+      provider: 'wallet'
+    };
   } catch (error) {
     logger.error('Error processing wallet refund:', error);
     return { success: false, message: 'Wallet refund failed' };
@@ -436,33 +428,68 @@ async function processWalletRefund(order, userId) {
 }
 
 // Process card refund
-async function processCardRefund(order) {
+async function processCardRefund(order, reason) {
   try {
-    // In a real implementation, you would make an API call to process the refund
-    // For now, we'll simulate a successful refund
-    
-    logger.info(`Processing card refund for order ${order._id}`);
-    
-    return { success: true };
+    const refundResult = await PaymentService.processYocoRefund(
+      order.transactionId,
+      order.total,
+      reason
+    );
+
+    return {
+      success: true,
+      refundId: refundResult.refundId,
+      provider: 'yoco',
+      amount: refundResult.amount,
+      status: refundResult.status
+    };
   } catch (error) {
     logger.error('Error processing card refund:', error);
-    return { success: false, message: 'Card refund failed' };
+    return { success: false, message: error.message };
   }
 }
 
 // Process EFT refund
-async function processEFTRefund(order) {
+async function processEFTRefund(order, reason) {
   try {
-    // In a real implementation, you would make an API call to process the EFT refund
-    // For now, we'll simulate a successful refund
-    
-    logger.info(`Processing EFT refund for order ${order._id}`);
-    
-    return { success: true };
+    const refundResult = await PaymentService.processOzowRefund(
+      order.transactionId,
+      order.total,
+      reason
+    );
+
+    return {
+      success: true,
+      refundId: refundResult.refundId,
+      provider: 'ozow',
+      amount: refundResult.amount,
+      status: refundResult.status
+    };
   } catch (error) {
     logger.error('Error processing EFT refund:', error);
-    return { success: false, message: 'EFT refund failed' };
+    return { success: false, message: error.message };
   }
 }
+
+// Get payment gateway status
+router.get('/gateways/status', async (req, res) => {
+  try {
+    const status = await PaymentService.getGatewayStatus();
+    res.json({ success: true, status });
+  } catch (error) {
+    logger.error('Gateway status error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get gateway status' });
+  }
+});
+
+// Get test tokens (development only)
+router.get('/test/tokens', (req, res) => {
+  try {
+    const tokens = PaymentService.getTestTokens();
+    res.json({ success: true, tokens });
+  } catch (error) {
+    res.status(403).json({ success: false, message: error.message });
+  }
+});
 
 module.exports = router;
