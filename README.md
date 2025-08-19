@@ -122,10 +122,31 @@ wefuel-app/
    # Edit .env with your configuration
    ```
 
-4. **Start the development servers**
+4. **Set up the database with sample data**
+   ```bash
+   npm run setup
+   ```
+
+5. **Start the development servers**
    ```bash
    npm run dev
    ```
+
+## 👥 Sample Accounts
+
+After running the setup script, you can test the application with these pre-configured accounts:
+
+### Users (Customers)
+- **Email**: john@example.com | **Password**: password123
+- **Email**: jane@example.com | **Password**: password123
+
+### Drivers
+- **Email**: mike@wefuel.com | **Password**: password123
+- **Email**: sarah@wefuel.com | **Password**: password123
+
+### Stations
+- **Email**: sandton@shell.com | **Password**: password123
+- **Email**: rosebank@caltex.com | **Password**: password123
 
 ## ⚙️ Environment Setup
 

@@ -21,6 +21,9 @@ import UserOrder from './pages/user/Order';
 import UserTracking from './pages/user/Tracking';
 import UserWallet from './pages/user/Wallet';
 import UserProfile from './pages/user/Profile';
+import CreateOrder from './pages/user/CreateOrder';
+import PaymentPage from './pages/user/PaymentPage';
+import ProfilePage from './pages/user/ProfilePage';
 
 // Driver App Pages
 import DriverLogin from './pages/driver/Login';
@@ -111,6 +114,30 @@ function App() {
                     element={
                       <ProtectedRoute userType="user">
                         <UserProfile />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="/user/create-order" 
+                    element={
+                      <ProtectedRoute userType="user">
+                        <CreateOrder />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="/user/payment/:orderId" 
+                    element={
+                      <ProtectedRoute userType="user">
+                        <PaymentPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="/user/profile-settings" 
+                    element={
+                      <ProtectedRoute userType="user">
+                        <ProfilePage />
                       </ProtectedRoute>
                     } 
                   />
