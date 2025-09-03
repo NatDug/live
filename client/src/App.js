@@ -10,41 +10,22 @@ import { SocketProvider } from './contexts/SocketContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 
 // Components
-import ProtectedRoute from './components/common/ProtectedRoute';
-import LoadingSpinner from './components/common/LoadingSpinner';
+import ProtectedRoute from './components/ProtectedRoute';
 
-// User App Pages
-import UserLogin from './pages/user/Login';
-import UserSignup from './pages/user/Signup';
-import UserDashboard from './pages/user/Dashboard';
-import UserOrder from './pages/user/Order';
-import UserTracking from './pages/user/Tracking';
-import UserWallet from './pages/user/Wallet';
-import UserProfile from './pages/user/Profile';
+// User App Pages (only files that exist)
+import UserDashboard from './pages/user/UserDashboard';
 import CreateOrder from './pages/user/CreateOrder';
 import PaymentPage from './pages/user/PaymentPage';
 import ProfilePage from './pages/user/ProfilePage';
 import OrderTracking from './pages/user/OrderTracking';
 
 // Driver App Pages
-import DriverLogin from './pages/driver/Login';
-import DriverSignup from './pages/driver/Signup';
 import DriverDashboard from './pages/driver/Dashboard';
-import DriverOrders from './pages/driver/Orders';
-import DriverTraining from './pages/driver/Training';
-import DriverWallet from './pages/driver/Wallet';
-import DriverProfile from './pages/driver/Profile';
 import OrderDetails from './pages/driver/OrderDetails';
 import Earnings from './pages/driver/Earnings';
 
 // Station App Pages
-import StationLogin from './pages/station/Login';
-import StationSignup from './pages/station/Signup';
 import StationDashboard from './pages/station/Dashboard';
-import StationOrders from './pages/station/Orders';
-import StationInventory from './pages/station/Inventory';
-import StationWallet from './pages/station/Wallet';
-import StationProfile from './pages/station/Profile';
 
 // Landing Page
 import LandingPage from './pages/LandingPage';
@@ -78,8 +59,7 @@ function App() {
                   <Route path="/" element={<LandingPage />} />
                   
                   {/* User Routes */}
-                  <Route path="/user/login" element={<UserLogin />} />
-                  <Route path="/user/signup" element={<UserSignup />} />
+                  {/* Auth routes removed (pages not present) */}
                   <Route 
                     path="/user/dashboard" 
                     element={
@@ -88,38 +68,7 @@ function App() {
                       </ProtectedRoute>
                     } 
                   />
-                  <Route 
-                    path="/user/order" 
-                    element={
-                      <ProtectedRoute userType="user">
-                        <UserOrder />
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/user/tracking/:orderId" 
-                    element={
-                      <ProtectedRoute userType="user">
-                        <UserTracking />
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/user/wallet" 
-                    element={
-                      <ProtectedRoute userType="user">
-                        <UserWallet />
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/user/profile" 
-                    element={
-                      <ProtectedRoute userType="user">
-                        <UserProfile />
-                      </ProtectedRoute>
-                    } 
-                  />
+                  {/* Removed routes to non-existent pages: Order, Tracking, Wallet, Profile */}
                   <Route 
                     path="/user/create-order" 
                     element={
@@ -154,8 +103,7 @@ function App() {
                   />
                   
                   {/* Driver Routes */}
-                  <Route path="/driver/login" element={<DriverLogin />} />
-                  <Route path="/driver/signup" element={<DriverSignup />} />
+                  {/* Removed driver login/signup (not present) */}
                   <Route 
                     path="/driver/dashboard" 
                     element={
@@ -164,38 +112,7 @@ function App() {
                       </ProtectedRoute>
                     } 
                   />
-                  <Route 
-                    path="/driver/orders" 
-                    element={
-                      <ProtectedRoute userType="driver">
-                        <DriverOrders />
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/driver/training" 
-                    element={
-                      <ProtectedRoute userType="driver">
-                        <DriverTraining />
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/driver/wallet" 
-                    element={
-                      <ProtectedRoute userType="driver">
-                        <DriverWallet />
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/driver/profile" 
-                    element={
-                      <ProtectedRoute userType="driver">
-                        <DriverProfile />
-                      </ProtectedRoute>
-                    } 
-                  />
+                  {/* Removed driver pages not present: Orders, Training, Wallet, Profile */}
                   <Route 
                     path="/driver/order/:orderId" 
                     element={
@@ -214,8 +131,7 @@ function App() {
                   />
                   
                   {/* Station Routes */}
-                  <Route path="/station/login" element={<StationLogin />} />
-                  <Route path="/station/signup" element={<StationSignup />} />
+                  {/* Removed station login/signup (not present) */}
                   <Route 
                     path="/station/dashboard" 
                     element={
@@ -224,38 +140,7 @@ function App() {
                       </ProtectedRoute>
                     } 
                   />
-                  <Route 
-                    path="/station/orders" 
-                    element={
-                      <ProtectedRoute userType="station">
-                        <StationOrders />
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/station/inventory" 
-                    element={
-                      <ProtectedRoute userType="station">
-                        <StationInventory />
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/station/wallet" 
-                    element={
-                      <ProtectedRoute userType="station">
-                        <StationWallet />
-                      </ProtectedRoute>
-                    } 
-                  />
-                  <Route 
-                    path="/station/profile" 
-                    element={
-                      <ProtectedRoute userType="station">
-                        <StationProfile />
-                      </ProtectedRoute>
-                    } 
-                  />
+                  {/* Removed station pages not present: Orders, Inventory, Wallet, Profile */}
                   
                   {/* Catch all route */}
                   <Route path="*" element={<Navigate to="/" replace />} />

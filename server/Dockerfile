@@ -7,14 +7,13 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Install dependencies (use install to avoid lockfile requirement in CI)
+RUN npm install --omit=dev && npm cache clean --force
 
 # Copy source code
 COPY . .
 
-# Create production build
-RUN npm run build
+# No build step required for Express server
 
 # Production stage
 FROM node:18-alpine AS production
@@ -30,10 +29,9 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install only production dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN npm install --omit=dev && npm cache clean --force
 
-# Copy built application from builder stage
-COPY --from=builder /app/dist ./dist
+# Copy application and installed modules from builder stage
 COPY --from=builder /app/node_modules ./node_modules
 
 # Copy necessary files
@@ -44,6 +42,7 @@ COPY --from=builder /app/middleware ./middleware
 COPY --from=builder /app/services ./services
 COPY --from=builder /app/utils ./utils
 COPY --from=builder /app/index.js ./
+COPY --from=builder /app/healthcheck.js ./
 
 # Change ownership to nodejs user
 RUN chown -R nodejs:nodejs /app
