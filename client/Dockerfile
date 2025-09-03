@@ -25,25 +25,12 @@ FROM nginx:alpine AS production
 # Copy built application from builder stage
 COPY --from=builder /app/build /usr/share/nginx/html
 
-# Create nginx user if it doesn't exist
-RUN addgroup -g 1001 -S nginx && \
-    adduser -S nginx -u 1001 -G nginx
-
-# Change ownership
-RUN chown -R nginx:nginx /usr/share/nginx/html && \
-    chown -R nginx:nginx /var/cache/nginx && \
-    chown -R nginx:nginx /var/log/nginx && \
-    chown -R nginx:nginx /etc/nginx/conf.d
-
-# Switch to nginx user
-USER nginx
-
-# Expose port
-EXPOSE 3000
+# Expose default nginx port
+EXPOSE 80
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/ || exit 1
+  CMD wget -qO- http://localhost:80/ >/dev/null || exit 1
 
 # Start nginx
 CMD ["nginx", "-g", "daemon off;"]
